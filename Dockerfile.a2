@@ -1,0 +1,2 @@
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
+# documentation-only marker to pin expected image family for Vast

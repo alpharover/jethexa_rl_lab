@@ -1,0 +1,4 @@
+{
+  "required": ["edge_rho_p5", "duty_asym_p90", "pass_no_termination"],
+  "optional": ["com_to_edge_p10"]
+}

@@ -1,0 +1,28 @@
+{
+  "env_version": "hex_v0",
+  "xml_path": "mjcf/jethexa_lab.xml",
+  "hash_xml_sha256": "4a11c2d81d8f841014a5e09b33621aa7606b565c8ac55e43945597296df177ff",
+  "mujoco": {
+    "timestep": 0.002,
+    "integrator": "implicit",
+    "cone": "pyramidal",
+    "enableflags": ["contact"],
+    "apirate": 60,
+    "iterations": 1,
+    "ls_iterations": 50
+  },
+  "ground": { "type": "plane", "friction": [0.8, 0.0, 0.0], "condim": 6 },
+  "contacts": { "condim": 6, "friction": [0.8, 0.003, 0.001] },
+  "actuators": {
+    "position": {
+      "kp": { "coxa": 50.0, "femur": 100.0, "tibia": 100.0 },
+      "kv": "model_default"
+    }
+  },
+  "teleop_preview": {
+    "tripods": [["LF","RM","LR"],["RF","LM","RR"]],
+    "coxa_default_sway_rad": 0.0
+  },
+  "push_limits": { "mu": 0.8, "safety_eta": 0.6, "delta_v_max_mps": 0.2, "apply_via": "xfrc_applied" },
+  "push": { "body": "torso", "deltav": 0.2, "steps": 10 }
+}

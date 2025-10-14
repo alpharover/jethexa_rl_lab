@@ -1,0 +1,11 @@
+# Ignore local artifacts
+.artifacts/
+artifacts/
+runs/
+.proofs/
+.pytest_cache/
+.ci-venv/
+.venv/
+MUJOCO_LOG.TXT
+.DS_Store
+
