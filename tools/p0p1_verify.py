@@ -327,7 +327,7 @@ def run_ik(m, d, legs: List[str], grid: int = 9):
     return results
 
 
-def run_workspace(m, d, legs: List[str], samples: int = 512, safety_scale: float = 1.4):
+def run_workspace(m, d, legs: List[str], samples: int = 512, safety_scale: float = 2.4):
     a1, a2, a3 = link_lengths_from_xml(m)
     report = []
     for leg in legs:

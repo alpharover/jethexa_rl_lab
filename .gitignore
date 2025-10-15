@@ -1,6 +1,8 @@
 # Ignore local artifacts
 .artifacts/
 artifacts/
+__pycache__/
+*.pyc
 runs/
 .proofs/
 .pytest_cache/
@@ -8,4 +10,3 @@ runs/
 .venv/
 MUJOCO_LOG.TXT
 .DS_Store
-

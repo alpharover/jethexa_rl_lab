@@ -31,6 +31,7 @@ from control.cpg_circle import (
     stance_update,
     swing_update,
     stride_limits_about_cw,
+    GaitEngine,
 )
 from tools.p0p1_verify import (
     LEG_ORDER,
@@ -162,6 +163,7 @@ def main():
     ap.add_argument("--mode", choices=["preview","stand"], default="preview",
                     help="preview: CPG+IK targets; stand: hold current joint pose (no motion)")
     ap.add_argument("--lock-coxa", action="store_true", help="Keep coxa angles fixed (femur/tibia-only IK)")
+    ap.add_argument("--p2final_v21", action="store_true", help="Use anchored stance + event-driven swing timing (v2.1)")
     args = ap.parse_args()
 
     xml_path = parse_env_or_xml(args.env, args.xml)
@@ -170,7 +172,7 @@ def main():
     mujoco.mj_forward(m, d)
 
     pol = load_circle_policy(Path(args.circle_policy), m, d)
-    # Make preview gentler: configurable phase rate
+    # Preview rate; keep omega and scale XY by amp-scale around cw when generating targets
     pol.omega = 2.0 * math.pi * float(args.omega)
     pol.lift = float(args.lift)
     pol.duty = float(args.duty)
@@ -265,6 +267,13 @@ def main():
         dctrl_max = omega_max * float(m.opt.timestep)
         prev_ctrl = np.array(d.ctrl, copy=True)
 
+        # v2.1 unified engine (anchored stance)
+        engine = GaitEngine(LEG_ORDER, pol, swing_apex=max(0.007, float(args.lift) if args.lift>0 else 0.012)) if args.p2final_v21 else None
+        # v2.1 sagittal-only preference: freeze yaw for straight/curve (allow for in-place turns)
+        prefer_sagittal_global = bool(args.p2final_v21 and (abs(args.v_cmd) > 1e-6))
+        # Per-leg frozen coxa target when sagittal-only is active
+        freeze_coxa: dict[str, float] = {}
+
         while viewer.is_running():
             if not paused:
                 # Drive either baseline or policy
@@ -282,12 +291,33 @@ def main():
                         a1, a2, a3 = link_lengths_from_xml(m)
                         for leg in LEG_ORDER:
                             hip_pos, hx, hy, hz = hip_frame_axes(m, d, leg)
-                            phi_leg = phaser.phase_for_leg(leg, base_phi)
-                            p_hi1 = foot_target_hi1(phi_leg, pol).copy()
-                            if args.amp_scale != 1.0:
-                                cx = pol.d_cw
-                                p_hi1[0] = cx + float(args.amp_scale) * (p_hi1[0] - cx)
-                                p_hi1[1] = float(args.amp_scale) * p_hi1[1]
+                            if args.p2final_v21 and engine is not None:
+                                torso = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, 'robot') if mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, 'robot') >= 0 else 0
+                                torso_pos = d.xpos[torso]; Rb = d.xmat[torso].reshape(3,3)
+                                hip_frames = {L: hip_frame_axes(m, d, L) for L in LEG_ORDER}
+                                footW = {}
+                                for L in LEG_ORDER:
+                                    gidL = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"foot_{L}")
+                                    bL = int(m.geom_bodyid[gidL])
+                                    footW[L] = d.xpos[bL] + d.xmat[bL].reshape(3,3) @ m.geom_pos[gidL]
+                                contact_now = {}
+                                for L in LEG_ORDER:
+                                    gidL = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"foot_{L}")
+                                    flag = 0
+                                    for ci in range(d.ncon):
+                                        c = d.contact[ci]
+                                        if c.geom1 == gidL or c.geom2 == gidL:
+                                            flag = 1; break
+                                    contact_now[L] = bool(flag)
+                                targets = engine.step(float(m.opt.timestep), torso_pos, Rb, hip_frames, footW, contact_now, args.yaw_cmd, float(args.amp_scale))
+                                p_hi1 = targets[leg].copy()
+                            else:
+                                phi_leg = phaser.phase_for_leg(leg, base_phi)
+                                p_hi1 = foot_target_hi1(phi_leg, pol).copy()
+                                if args.amp_scale != 1.0:
+                                    cx = pol.d_cw
+                                    p_hi1[0] = cx + float(args.amp_scale) * (p_hi1[0] - cx)
+                                    p_hi1[1] = float(args.amp_scale) * p_hi1[1]
                             # If coxa is unlocked, enforce stride arc limits to avoid yaw accumulation
                             if not args.lock_coxa:
                                 # compute cw and stride limits relative to the real motion center in hip frame
@@ -313,13 +343,15 @@ def main():
                                         p_hi1[0] = pol.d_cw + r*math.cos(th1)
                                         p_hi1[1] = r*math.sin(th1)
                             # Adjust per-leg so foot center rides at ground + foot radius
-                            gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"foot_{leg}")
                             foot_r = float(m.geom_size[gid][0]) if gid >= 0 else 0.012
                             dz = ((-hip_pos[2] + foot_r) - pol.height)
                             p_hi1[2] += dz
                             # Solve IK directly in engine coordinates using Jacobians
                             p_world = hip_pos + p_hi1[0]*hx + p_hi1[1]*hy + p_hi1[2]*hz
-                            q = engine_numeric_ik_leg(m, d, leg, p_world, iters=20, lam=1e-3, alpha=0.7, allow_coxa=(not args.lock_coxa))
+                            # Allow yaw only for explicit turn-in-place (v_cmd≈0 and yaw_cmd≠0), or when lock_coxa is set
+                            allow_yaw = (not prefer_sagittal_global) or (abs(args.v_cmd) < 1e-6 and abs(args.yaw_cmd) > 1e-6)
+                            allow_yaw = allow_yaw and (not args.lock_coxa)
+                            q = engine_numeric_ik_leg(m, d, leg, p_world, iters=20, lam=1e-3, alpha=0.7, allow_coxa=allow_yaw)
                             # Smoothly ramp targets from initial pose to IK targets over ~0.5s
                             ramp = min(1.0, t / 2.0)
                             for jname, qref in (
@@ -334,8 +366,14 @@ def main():
                                     # Blend from the current joint angle towards IK qref
                                     qi = q_init[jidx[jname]] if jname in jidx else 0.0
                                     q_blend = qi + ramp * (qref - qi)
-                                    # Slew-limit target to emulate servo max speed
+                                    # Sagittal-only: freeze coxa at first observed value when active
                                     raw = float(np.clip(q_blend, lo, hi))
+                                    if prefer_sagittal_global and jname.startswith("coxa_joint_"):
+                                        if leg not in freeze_coxa:
+                                            jidc = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jname)
+                                            freeze_coxa[leg] = float(d.qpos[int(m.jnt_qposadr[jidc])])
+                                        raw = float(np.clip(freeze_coxa[leg], lo, hi))
+                                    # Slew-limit target to emulate servo max speed
                                     prev = float(prev_ctrl[aid])
                                     lim = np.clip(raw, prev - dctrl_max, prev + dctrl_max)
                                     d.ctrl[aid] = lim

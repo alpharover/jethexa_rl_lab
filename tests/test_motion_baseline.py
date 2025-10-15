@@ -16,7 +16,16 @@ def last_json(s):
 def test_motion_headless_small_arc():
     if not os.path.exists(XML):
         return
-    p = run([mjpython(),"tools/p2_verify_motion.py","--xml",XML,"--seconds","8.0","--omega","0.05","--amp-scale","0.06"])
+    # Choose amp-scale so r_ctrl * amp ~ 3 mm to keep absolute amplitude stable
+    amp = 0.04
+    try:
+        data = json.loads(open(os.path.join("configs","policy","workspace_circle.json")).read())
+        r_ctrl = float(data.get("r_ctrl", 0.06))
+        if r_ctrl > 1e-6:
+            amp = max(0.02, min(0.10, 0.003 / r_ctrl))
+    except Exception:
+        pass
+    p = run([mjpython(),"tools/p2_verify_motion.py","--xml",XML,"--seconds","8.0","--omega","0.05","--amp-scale",f"{amp:.5f}"])
     assert p.returncode == 0, p.stderr
     out = last_json(p.stdout)
     assert out.get("locked",{}).get("tracking_ok", False), out

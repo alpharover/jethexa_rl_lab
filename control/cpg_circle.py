@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Tuple, Optional, List
 
 import numpy as np
@@ -158,3 +158,177 @@ class TripodPhaser:
         if leg in self.group_b:
             return (base_phase + math.pi) % (2 * math.pi)
         return base_phase
+
+
+# ---------------- Adaptive phase helpers (early touchdown, global Δt_G) ---- #
+
+@dataclass
+class PhaseState:
+    """Minimal per-leg phase state for adaptive swing/stance.
+
+    - phi: current phase angle on the circle about cw (radians, [0, 2π))
+    - mode: 'stance' or 'swing'
+    - phi_AEP/phi_PEP: latest estimates of the anterior/posterior extreme
+      positions for the current stride, used to re-synchronize on events.
+    """
+    phi: float
+    mode: str
+    phi_AEP: float
+    phi_PEP: float
+
+
+def wrap2pi(x: float) -> float:
+    return float((x + 2.0 * math.pi) % (2.0 * math.pi))
+
+
+def update_phase_on_touchdown(state: PhaseState, contact_now: bool) -> PhaseState:
+    """Early touchdown adaptation: if a leg in 'swing' touches down, switch it to
+    'stance' immediately and snap phase to the current AEP estimate. Stance legs
+    keep their phase (they continue rotating on the concentric arc).
+
+    This function is deliberately pure and tiny so tests can validate it without
+    a running simulator.
+    """
+    if state.mode == "swing" and contact_now:
+        return PhaseState(phi=wrap2pi(state.phi_AEP), mode="stance", phi_AEP=state.phi_AEP, phi_PEP=state.phi_PEP)
+    return state
+
+
+def worst_case_dt_global(legs: Dict[str, PhaseState], dpsi_dt: float, dt_nominal: float) -> float:
+    """Global Δt_G selection: choose a time step that does not skip past any
+    upcoming phase boundary across legs (simple, conservative rule).
+
+    We look at stance legs (advancing by dpsi_dt) and swing legs (advancing
+    their internal clock) and pick the minimum time to the next boundary among
+    all legs, then clamp by dt_nominal.
+    
+    For the baseline we only consider stance arc rotation by dpsi_dt and treat
+    swing as bounded by dt_nominal.
+    """
+    eps = 1e-9
+    if abs(dpsi_dt) < eps:
+        return float(dt_nominal)
+    # time to hit AEP for stance legs (when theta reaches phi_AEP)
+    t_hits: List[float] = []
+    for st in legs.values():
+        if st.mode == "stance":
+            # angular distance along direction of rotation
+            dphi = (st.phi_AEP - st.phi)
+            # wrap to [0, 2π)
+            dphi = (dphi + 2.0 * math.pi) % (2.0 * math.pi)
+            t_hit = dphi / abs(dpsi_dt)
+            t_hits.append(float(t_hit))
+    t_min = min(t_hits) if t_hits else float(dt_nominal)
+    return float(max(1e-6, min(dt_nominal, t_min)))
+
+
+# ---------------- Event‑driven gait engine (v2.1 stance anchors) ------------- #
+
+@dataclass
+class GaitLegState:
+    mode: str = "swing"                 # 'stance' or 'swing'
+    anchor_W: Optional[np.ndarray] = None  # 3D world anchor latched at AEP
+    pep_xy: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
+    aep_xy: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
+    swing_i: int = 0
+    swing_N: int = 0
+
+
+class GaitEngine:
+    """Event‑driven gait with anchored stance in world (P2‑FINAL v2.1).
+
+    The engine is kinematic and stateless w.r.t. the simulator: callers pass
+    per‑step measurements (hip frames, foot world positions, contact flags) and
+    obtain per‑leg foot targets in {Hi1} that implement:
+      - Anchored stance: p_foot^W stays fixed at anchor_W (latched on AEP)
+      - Swing: straight‑line PEP→AEP in XY with a small, filtered height bump
+      - AEP selection: by stride‑limit intersection about the real motion center
+      - Early touchdown: snap to stance immediately on contact
+    """
+
+    def __init__(self, legs: List[str], pol: CirclePolicy, swing_apex: float = 0.012, phaser: Optional[TripodPhaser] = None):
+        self.legs = list(legs)
+        self.pol = pol
+        self.swing_apex = float(max(0.007, swing_apex))
+        self.state: Dict[str, GaitLegState] = {leg: GaitLegState() for leg in legs}
+        self.base_phi: float = 0.0
+        # Default tripod phaser if none provided
+        self.phaser = phaser or TripodPhaser(("LF","RM","LR"), ("RF","LM","RR"))
+
+    def _choose_next_aep(self, hip_pos: np.ndarray, hx: np.ndarray, hy: np.ndarray,
+                         torso_pos: np.ndarray, Rb: np.ndarray,
+                         yaw_cmd: float, amp_scale: float) -> np.ndarray:
+        # Compute stride limits about the real motion center in {Hi1}
+        cm_body, _ = motion_center(0.0 if math.isnan(0.0) else 0.0, yaw_cmd, 0.0)
+        cm_world = torso_pos + cm_body[0]*Rb[:,0] + cm_body[1]*Rb[:,1]
+        cw = hip_pos + self.pol.d_cw * hx
+        cm_xy = np.array([np.dot(cm_world-hip_pos, hx), np.dot(cm_world-hip_pos, hy)])
+        cw_xy = np.array([np.dot(cw-hip_pos, hx), np.dot(cw-hip_pos, hy)])
+        r_i = float(np.linalg.norm(cw_xy - cm_xy))
+        lim = stride_limits_about_cw(cw_xy, float(self.pol.r_ctrl*amp_scale), cm_xy, r_i)
+        th = None
+        if lim is not None:
+            th0, th1 = lim
+            th = th1 if yaw_cmd >= 0.0 else th0
+        if th is None:
+            th = 0.0
+        r_cmd = float(self.pol.r_ctrl*amp_scale)
+        return np.array([self.pol.d_cw + r_cmd*math.cos(th), r_cmd*math.sin(th)], dtype=float)
+
+    def step(self, dt: float,
+             torso_pos: np.ndarray, Rb: np.ndarray,
+             hip_frames: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]],
+             foot_world: Dict[str, np.ndarray],
+             contact: Dict[str, bool],
+             yaw_cmd: float, amp_scale: float) -> Dict[str, np.ndarray]:
+        out: Dict[str, np.ndarray] = {}
+        # advance global phase
+        self.base_phi = (self.base_phi + float(self.pol.omega) * float(dt)) % (2.0*math.pi)
+        for leg in self.legs:
+            hip_pos, hx, hy, hz = hip_frames[leg]
+            st = self.state[leg]
+            # desired mode by duty fraction
+            phi_leg = self.phaser.phase_for_leg(leg, self.base_phi)
+            phase_u = (phi_leg % (2.0*math.pi)) / (2.0*math.pi)
+            desired_mode = 'stance' if phase_u < float(self.pol.duty) else 'swing'
+            # Schedule by desired mode; adapt to contact later (early touchdown)
+            if desired_mode == 'stance':
+                if st.mode != 'stance':
+                    st.mode = 'stance'
+                    st.anchor_W = foot_world[leg].copy()
+                    st.swing_i = st.swing_N = 0
+            else:  # desired swing
+                if st.mode != 'swing':
+                    st.mode = 'swing'
+                    cw = hip_pos + self.pol.d_cw * hx
+                    v = foot_world[leg] - cw
+                    st.pep_xy = np.array([np.dot(v, hx), np.dot(v, hy)], dtype=float)
+                    st.aep_xy = self._choose_next_aep(hip_pos, hx, hy, torso_pos, Rb, yaw_cmd, amp_scale)
+                    freq = max(0.2, float(self.pol.omega) / (2.0*math.pi))
+                    swing_T = (1.0 - float(self.pol.duty)) / freq
+                    st.swing_N = max(2, int(swing_T / max(1e-6, dt)))
+                    st.swing_i = 0
+                # Early touchdown adaptation: if we are in swing and have (re)gained contact after some progress, snap to stance
+                if contact.get(leg, False) and st.swing_i > max(1, st.swing_N//4):
+                    st.mode = 'stance'
+                    st.anchor_W = foot_world[leg].copy()
+                    st.swing_i = st.swing_N = 0
+            # If in swing but desired is stance and contact happened early, anchor handled above
+
+            # Targets
+            if st.mode == 'stance' and st.anchor_W is not None:
+                # anchored world target mapped into {Hi1}
+                rel = st.anchor_W - hip_pos
+                p_hi1 = np.array([np.dot(rel, hx), np.dot(rel, hy), self.pol.height], dtype=float)
+            else:
+                # straight-line swing with vertical bump
+                if st.swing_N <= 0:
+                    st.aep_xy = self._choose_next_aep(hip_pos, hx, hy, torso_pos, Rb, yaw_cmd, amp_scale)
+                    st.swing_N = max(2, int(0.25 / max(1e-6, dt)))
+                    st.swing_i = 0
+                xy_next, z_next = swing_update(st.pep_xy, st.aep_xy, max(1, st.swing_N - st.swing_i), 0.0, self.swing_apex, st.swing_i, st.swing_N)
+                st.swing_i = min(st.swing_N, st.swing_i + 1)
+                p_hi1 = np.array([xy_next[0], xy_next[1], self.pol.height + z_next], dtype=float)
+
+            out[leg] = p_hi1
+        return out

@@ -180,17 +180,17 @@
     <position name="pos_coxa_joint_RF" joint="coxa_joint_RF" kp="50.0" kv="8.0" ctrlrange="-1.75 1.75" forcerange="-2.5 2.5" />
     <position name="pos_coxa_joint_RM" joint="coxa_joint_RM" kp="50.0" kv="8.0" ctrlrange="-1.75 1.75" forcerange="-2.5 2.5" />
     <position name="pos_coxa_joint_RR" joint="coxa_joint_RR" kp="50.0" kv="8.0" ctrlrange="-1.75 1.75" forcerange="-2.5 2.5" />
-    <position name="pos_femur_joint_LF" joint="femur_joint_LF" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_femur_joint_LM" joint="femur_joint_LM" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_femur_joint_LR" joint="femur_joint_LR" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_femur_joint_RF" joint="femur_joint_RF" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_femur_joint_RM" joint="femur_joint_RM" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_femur_joint_RR" joint="femur_joint_RR" kp="100.0" kv="12.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_LF" joint="tibia_joint_LF" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_LM" joint="tibia_joint_LM" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_LR" joint="tibia_joint_LR" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_RF" joint="tibia_joint_RF" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_RM" joint="tibia_joint_RM" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
-    <position name="pos_tibia_joint_RR" joint="tibia_joint_RR" kp="100.0" kv="12.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_LF" joint="femur_joint_LF" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_LM" joint="femur_joint_LM" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_LR" joint="femur_joint_LR" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_RF" joint="femur_joint_RF" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_RM" joint="femur_joint_RM" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_femur_joint_RR" joint="femur_joint_RR" kp="200.0" kv="18.0" ctrlrange="-1.7 2.45" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_LF" joint="tibia_joint_LF" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_LM" joint="tibia_joint_LM" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_LR" joint="tibia_joint_LR" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_RF" joint="tibia_joint_RF" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_RM" joint="tibia_joint_RM" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
+    <position name="pos_tibia_joint_RR" joint="tibia_joint_RR" kp="200.0" kv="18.0" ctrlrange="-2.4 1.2" forcerange="-3.0 3.0" />
   </actuator>
 </mujoco>

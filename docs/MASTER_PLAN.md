@@ -30,9 +30,9 @@ repo/
 
 ---
 
-## 1) Status snapshot — 2025‑10‑14 (what’s green now)
+## 1) Status snapshot — 2025‑10‑15 (current truth)
 
-This section supersedes prior snapshots. We now have reproducible physics sanity, IK parity, a calibrated circle policy, HX‑35H‑realistic actuators, and headless motion gates for a gentle preview gait.
+This section supersedes prior snapshots. We have reproducible physics sanity, IK parity, a calibrated circle policy, HX‑35H‑realistic actuators, and headless motion gates for a gentle preview gait. The P2‑FINAL v2.1.1 gatepack is integrated (slip, joint‑use split, events/apex, excursions, contact v_z, parity); unlocked runs are RED pending Δt_G timing and a short warm‑start.
 
 **What’s green (drop‑in; no MJCF edits beyond prior XML):**
 
@@ -63,22 +63,65 @@ This section supersedes prior snapshots. We now have reproducible physics sanity
   * `configs/policy/workspace_circle.json` — controller circle with provenance: `r_paper`, `r_inscribed_min`, chosen `r_ctrl`, `s`, `alpha`, `hip_z_nom`, and timestamp.
   * `configs/calib/ik_offsets.json` — per‑leg joint `sign` and `delta` (analytic→engine mapping) with XML SHA.
 
-**Current numbers (2025‑10‑14):**
+**Current numbers (2025‑10‑15):**
 
 - Physics suite: all green; pushes are finite and cleared; ΣN≈M·g; gravity fit near 9.81; actuator clamps present.
 - IK parity: 95‑ile ≤ 2 mm; max ≤ 5 mm on a grid in {Hi1}.
 - Motion (small preview, flat, gentle):
-  - Locked‑coxa pass (geometry probe): tracking RMS ≤ ~5 mm; ring mean ≤ ~2.2 mm; ground‑z mean ≤ ~1.7 mm; limits/scuff OK.
-  - Unlocked‑coxa pass: stride clamp prevents yaw accumulation; limit‑time ≤ 3 %; contact OK.
+  - Locked‑coxa pass (geometry probe): mm‑level compliance close to final; ring mean marginal on a few legs without warm‑start; limits/scuff OK.
+  - Unlocked‑coxa pass (v2.1.1): events/apex/excursions + slip/contact‑v_z failing on some legs at realistic amplitudes. Δt_G + snap‑to‑AEP and warm‑start are in progress.
+
+---
+
+## 1.1) P2‑FINAL — Acceptance Spec v2.1.1 (locked)
+
+Pass criteria (all three scenarios: straight, turn‑in‑place, curve; seed‑locked):
+- Geometry probe (locked): XY RMS ≤ 3 mm; ring mean ≤ 2 mm; ground‑z mean ≤ 1 mm; scuff ≤ 0.05; limit time ≤ 3 %.
+- Stance slip (unlocked): per‑stance slip ≤ 3 % stride and ≤ 4 mm; mean tangential speed ≤ 1.5 mm/s.
+- Joint‑use split (J_xy·q̇): straight/curve mean ≤ 0.25 (95‑ile ≤ 0.35); turn mean ≤ 0.45 (95‑ile ≤ 0.60).
+- Events/apex: valid PEP→AEP→PEP; swing apex ≥ 7 mm.
+- Excursions: femur ≥ 8°, tibia ≥ 12°.
+- Contact v_z: 95‑ile ≤ 2 mm/s in stance.
+- Viewer↔Headless parity: XY RMS and ring mean within 10 %.
+- Artifacts: three MP4s + episodes.jsonl + summary.json with determinism stamp.
+- Policy band: keep r_ctrl in [0.12, 0.16] m (current ≈ 0.123–0.125 m with provenance).
+
+Status: gates implemented in tools/p2_verify_motion.py; viewer unified under --p2final_v21; sagittal‑only (coxa frozen) applied on straight/curve; Δt_G + early‑touchdown snap pending in engine.
+
+### P2‑FINAL runbook (single‑source; hermetic)
+```
+bash scripts/ci_bootstrap.sh && export MJPY=./ci-mjpython
+$MJPY $MJPY tools/p2_verify_physics.py --xml mjcf/jethexa_lab.xml --test all --seconds 2.0 --deltav 0.2 --push-steps 10
+$MJPY $MJPY tools/p0p1_verify.py --xml mjcf/jethexa_lab.xml --ik all
+$MJPY $MJPY tools/p2_tune_circle.py --xml mjcf/jethexa_lab.xml --out configs/policy/workspace_circle.json
+
+# Geometry probe (locked)
+$MJPY tools/p2_verify_motion.py --xml mjcf/jethexa_lab.xml --seconds 20 --omega 0.05 --amp-scale 0.06 \
+  --p2final_v21 --geo-xyrms-mm 3 --geo-ring-mean-mm 2 --geo-ground-mean-mm 1
+
+# Unlocked engine runs (apex=0.050 m, duty=0.60 enforced)
+$MJPY tools/p2_verify_motion.py --xml mjcf/jethexa_lab.xml --seconds 20 --omega 0.05 --amp-scale 0.06 \
+  --p2final_v21 --v-cmd 0.05 --yaw-cmd 0.0 --parity
+$MJPY tools/p2_verify_motion.py --xml mjcf/jethexa_lab.xml --seconds 20 --omega 0.05 --amp-scale 0.06 \
+  --p2final_v21 --v-cmd 0.00 --yaw-cmd 0.5 --parity
+$MJPY tools/p2_verify_motion.py --xml mjcf/jethexa_lab.xml --seconds 20 --omega 0.05 --amp-scale 0.06 \
+  --p2final_v21 --v-cmd 0.05 --yaw-cmd 0.25 --parity
+
+# Artifacts (deterministic MP4s)
+$MJPY tools/render_gait.py --scenario straight --out artifacts/final_gait_straight.mp4
+$MJPY tools/render_gait.py --scenario turn    --out artifacts/final_gait_turn.mp4
+$MJPY tools/render_gait.py --scenario curve   --out artifacts/final_gait_curve.mp4
+```
 
 Note: gates in the motion tester are temporarily relaxed (RMS ≤ 5 mm; ring mean ≤ 2.5 mm; z mean ≤ 1.8 mm) to reflect PD settling at very small amplitudes. We will tighten to 3/2/1 mm after stride timing and/or PD tuning.
 
 ---
 
-### P2 progress (2025‑10‑14)
+### P2 progress (2025‑10‑15)
 
 - Control: `control/ik_analytic.py`, `control/ik_numeric.py`, `control/limit_buffer.py`, `control/cpg_circle.py`, `control/posture_surfplane.py`.
 - Tools: `tools/view_policy.py`, `tools/p2_tune_circle.py`, `tools/p2_phase_probe.py`, `tools/p2_verify_motion.py`, `tools/p2_verify_physics.py`, `tools/p2_calibrate_ik_offsets.py`.
+- New: `tools/render_gait.py` for off‑screen MP4s; adaptive helpers in `control/cpg_circle.py` (`PhaseState`, `update_phase_on_touchdown`, `worst_case_dt_global`); zero‑mean surf‑plane accumulator in `control/posture_surfplane.py`.
 - Tests: `tests/test_ik_parity.py`, `tests/test_workspace_circle.py`, `tests/test_limit_buffers.py`, `tests/test_support_polygon.py`, `tests/test_physics_sanity.py`, `tests/test_motion_baseline.py`.
 - IK offsets are calibrated and cached; circle policy is pinned; viewer overlays match headless metrics.
 
@@ -202,6 +245,21 @@ $MJPY $MJPY tools/p2_calibrate_ik_offsets.py --xml mjcf/jethexa_lab.xml
 
 # Motion preview (headless small arcs)
 $MJPY $MJPY tools/p2_verify_motion.py --xml mjcf/jethexa_lab.xml --seconds 8.0 --omega 0.05 --amp-scale 0.06
+```
+
+**Visual confirmation (off‑screen).**
+```
+$MJPY tools/render_gait.py --scenario straight --out docs/final_gait_straight.mp4
+$MJPY tools/render_gait.py --scenario turn    --out docs/final_gait_turn.mp4
+$MJPY tools/render_gait.py --scenario curve   --out docs/final_gait_curve.mp4
+```
+
+**Headless full‑gait tests.**
+```
+pytest -q tests/test_gait_full.py::test_turn_in_place \
+          tests/test_gait_full.py::test_straight_line \
+          tests/test_gait_full.py::test_curved_path \
+          tests/test_gait_full.py::test_early_touchdown_adaptation
 ```
 
 **Viewer (sanity overlays).**
@@ -364,6 +422,3 @@ Keys: `1` hard‑hold, `2` tripod, `3/4` yaw L/R (stance‑only coxa), `, .` spe
 | Contact     | Scuff rate (contacts/m) | < 0.05                       |            |             |
 | Contact     | Slip distance on S0/S1  | bounded (no persistent slip) |            |             |
 | Determinism | eval hash repeat        | identical                    |            |             |
-
-
-

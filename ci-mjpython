@@ -1,4 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Run python using uv with pinned CPython 3.11 for MuJoCo wheels
 exec "$(dirname "$0")/.ci-venv/bin/uv" run -p 3.11 python "$@"

@@ -56,3 +56,15 @@ class SurfPlaneAccumulator:
             self.h[leg] = (1.0 - self.G) * self.h.get(leg, 0.0) + self.G * float(dh)
         return dict(self.h)
 
+    def update_balanced(self, deltas: dict[str, float]) -> dict[str, float]:
+        """Like update(), but subtract the mean across legs so offsets remain
+        zero-mean (prevents integrator windup eating step-height budget)."""
+        # first-order blend
+        tmp = {}
+        for leg, dh in deltas.items():
+            tmp[leg] = (1.0 - self.G) * self.h.get(leg, 0.0) + self.G * float(dh)
+        mu = float(np.mean(list(tmp.values()))) if tmp else 0.0
+        for leg, val in tmp.items():
+            self.h[leg] = float(val - mu)
+        return dict(self.h)
+
